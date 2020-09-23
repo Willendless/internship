@@ -1,0 +1,161 @@
+\documentclass{beamer}
+
+\usepackage[utf8]{inputenc}
+\usepackage{xeCJK}
+
+%Information to be included in the title page:
+\title{etcd: 基本介绍}
+\author{李嘉睿}
+\institute[]{中间件团队}
+\date{2020.9}
+\usetheme[]{Boadilla}
+
+%
+% document begin 
+%
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}
+\frametitle{主要内容}
+\tableofcontents
+\begin{itemize}
+    \item 什么是etcd
+    \item 为什么使用etcd
+    \item etcd一些实现细节
+    \item 如何使用etcd
+    \item 一些仍需解决的问题
+\end{itemize}
+\end{frame}
+
+% frame1：什么是etcd
+\begin{frame}
+\frametitle{什么是etcd}
+etcd是一个\alert{强一致}的分布式\alert{键值存储}。
+
+\begin{block}{强一致}
+\begin{itemize}
+    \item 基于raft共识算法，单一raft备份组，无分片
+    \item \alert{线性读写:} leader分配所有备份节点的全局读写顺序，同时保证读总是能读到最新的值
+\end{itemize}
+\end{block}
+
+\begin{block}{数据模型：键值存储+版本}
+扁平的键空间模拟文件目录结构。
+\begin{itemize}
+    \item \alert{持久化:} 键值对存储在持久化b+树中，支持对键的范围查找
+    \item 内存b树缓存指向键值对的指针
+    \item \alert{MVCC:} 每次数据版本更新添加数据增量部分
+\end{itemize}
+\end{block}
+\end{frame}
+
+%
+% frame2.1: 为什么使用etcd
+%
+\begin{frame}
+\frametitle{为什么使用etcd}
+
+\begin{exampleblock}{元数据存储}
+单一raft备份组，无分片。
+\begin{itemize}
+    \item 无分片，水平扩展能力较差，支持数GB数据(默认2GB，最大8GB)，因此海量数据存储需要使用NewSQL数据库。
+    \item 无分片，无需分片备份组之间两阶段提交以及分布式锁的开销，性能更好。
+\end{itemize}
+\end{exampleblock}
+
+\begin{exampleblock}{分布式协调}
+开箱即用的分布式协调原语。
+\begin{itemize}
+    \item 提供监视器、租约、leader选举和分布式锁的支持。
+    \item 简单易用，支持Restful接口，可以从命令行使用分布式协调服务。
+    \item 使用gRPC框架，已经有多种语言的API支持或客户端实现。
+\end{itemize}
+\end{exampleblock}
+
+\end{frame}
+
+%
+% frame2.2: 为什么使用etcd
+%
+\begin{frame}
+\frametitle{为什么使用etcd}
+
+本质上，etcd和zookeeper解决了相同的问题。其比较如下：
+
+\begin{alertblock}{比较}
+    \begin{itemize}
+        \item 数据模型：etcd使用键值对，支持范围查找，使用role-based访问控制。zk使用树形znode结构，其内包含ACL访问控制列表。
+        \item 并发原语：etcd内置并发原语，zk使用外部客户端库curator。
+        \item 读操作：zk不支持线性化读，读操作可能读到过时数据。
+        \item MVCC：etcd支持MVCC，zk不支持。
+        \item 监视器通知：etcd支持范围键值的监视器。
+        \item API支持：etcd支持HTTP/JSON API，zk不支持。
+        \item RPC框架：etcd使用grpc框架，zk使用自己定制的rpc协议。
+        \item 存储限制：etcd最多存储8GB，zk通常支持几百MB。
+    \end{itemize}
+\end{alertblock}
+
+\end{frame}
+
+
+
+\begin{frame}
+\frametitle{如何使用etcd}
+\end{frame}
+
+%
+% frame4.1: etcd其它细节
+%
+\begin{frame}
+\frametitle{etcd其它细节：客户端实现}
+
+\begin{block}{grpc1.0}
+客户端为每个endpoint维护一个TCP连接，第一个成功建立连接的endpoint作为"pinned address". 
+多个TCP连接有利于更快的故障恢复，但是需要更多资源。
+\end{block}
+
+\begin{block}{grpc1.7}
+首先尝试连接所有集群服务器，维护第一个成功连接的TCP连接。
+遇到错误时，由客户端的错误处理器(error handler)决定是否重连或者选择新的服务器地址。
+需要维护endpoints状态列表，其中不健康状态的判定是false positive的，即被标记为不健康的节点可能在之后恢复健康。
+\end{block}
+
+\begin{block}{grpc1.23}
+客户端为每个endpoint维护一个TCP连接，通过轮转(round robin)负载均衡，
+通过gRPC链式拦截器实现重连.
+\alert{仍未解决：}网络分区情况下阻塞，缺少集群健康情况查询服务。
+\end{block}
+
+\end{frame}
+
+%
+% frame5.1：一些思考中的问题和之后的规划
+%
+
+\begin{frame}
+\frametitle{思考中的问题}
+\begin{frame}
+    数据迁移：leader transfer？
+\end{frame}
+
+
+\begin{frame}
+\frametitle{下一步仍需解决的一些问题}
+
+\begin{itemize}
+    \item 数据增量添加的意义和b+树的联系
+    \item 软件事务内存
+    \item 基于角色的鉴权
+    \item API原语的实际使用
+    \item MVCC的源码级别实现及应用
+    \item 性能指标
+    \item 数据迁移
+    \item 双活
+    \item 注册中心
+    \item 配置中心
+\end{itemize}
+\end{frame}
+
+\end{document}
