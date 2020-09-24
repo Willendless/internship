@@ -87,18 +87,39 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 \begin{alertblock}{比较}
     \begin{itemize}
         \item 数据模型：etcd使用键值对，支持范围查找，使用role-based访问控制。zk使用树形znode结构，其内包含ACL访问控制列表。
+        \item 存储限制：均最多支持几GB数据的存储。
         \item 并发原语：etcd内置并发原语，zk使用外部客户端库curator。
         \item 读操作：zk不支持线性化读，读操作可能读到过时数据。
         \item MVCC：etcd支持MVCC，zk不支持。
         \item 监视器通知：etcd支持范围键值的监视器。
         \item API支持：etcd支持HTTP/JSON API，zk不支持。
         \item RPC框架：etcd使用grpc框架，zk使用自己定制的rpc协议。
-        \item 存储限制：etcd最多存储8GB，zk通常支持几百MB。
     \end{itemize}
 \end{alertblock}
 
 \end{frame}
 
+%
+% frame2.3: 为什么使用etcd
+%
+\begin{frame}
+\frametitle{为什么使用etcd}
+
+etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV内部的Raft实现
+是对etcd的Raft实现的Rust版重写，但是这两种kv存储的应用场景
+有较大差异。其比较如下：
+
+\begin{alertblock}{比较}
+    \begin{itemize}
+        \item 实现动机：TiKV为解决传统单机数据库
+        \item 数据模型：相同，均为分布式Map。etcd单机存储引擎为boltDB，TiKV单机存储引擎为RocksDB。均为和应用程序直接绑定的key-value数据库，boltDB使用LSM树作为存储结构而RocksDB使用b+树作为存储结构。
+        \item 存储模型：TiKV对数据分片（默认64MB数据为一个Region），一个Region通常有3个或5个备份，存在于一个Raft组中。etcd只有单个Raft组。
+        \item 存储限制：etcd最多8GB，TiKV理论上可以无限水平扩容。
+        \item 
+    \end{itemize}
+\end{alertblock}
+
+\end{frame}
 
 
 \begin{frame}
@@ -117,9 +138,10 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 \end{block}
 
 \begin{block}{grpc1.7}
-首先尝试连接所有集群服务器，维护第一个成功连接的TCP连接。
-遇到错误时，由客户端的错误处理器(error handler)决定是否重连或者选择新的服务器地址。
-需要维护endpoints状态列表，其中不健康状态的判定是false positive的，即被标记为不健康的节点可能在之后恢复健康。
+首先尝试连接所有endpoints，维护第一个成功连接的TCP连接。
+遇到错误时，由客户端的错误处理器(error handler)决定重连或选择新的服务器地址。
+需要维护endpoints状态列表，其中不健康状态的判定存在误判的可能，
+即被标记为不健康的节点可能在之后恢复健康但客户端无法获取该信息。
 \end{block}
 
 \begin{block}{grpc1.23}
@@ -136,8 +158,7 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 
 \begin{frame}
 \frametitle{思考中的问题}
-\begin{frame}
-    数据迁移：leader transfer？
+    数据迁移：leader transfer？etcd是否有内置的支持？
 \end{frame}
 
 
