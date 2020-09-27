@@ -2,13 +2,14 @@
 
 \usepackage[utf8]{inputenc}
 \usepackage{xeCJK}
+\usepackage{url}
 
 %Information to be included in the title page:
 \title{etcd: 基本介绍}
 \author{李嘉睿}
 \institute[]{中间件团队}
 \date{2020.9}
-\usetheme[]{Boadilla}
+\usetheme[]{Madrid}
 
 %
 % document begin 
@@ -62,6 +63,7 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 \begin{itemize}
     \item 无分片，水平扩展能力较差，支持数GB数据(默认2GB，最大8GB)，因此海量数据存储需要使用NewSQL数据库。
     \item 无分片，无需分片备份组之间两阶段提交以及分布式锁的开销，性能更好。
+    \item etcd的使用举例：k8s利用etcd存储元数据，tikv的PD利用etcd存储region位置等元数据信息。
 \end{itemize}
 \end{exampleblock}
 
@@ -105,29 +107,64 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 \begin{frame}
 \frametitle{为什么使用etcd}
 
-etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV内部的Raft实现
+etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
 是对etcd的Raft实现的Rust版重写，但是这两种kv存储的应用场景
 有较大差异。其比较如下：
 
 \begin{alertblock}{比较}
     \begin{itemize}
-        \item 实现动机：TiKV为解决传统单机数据库
-        \item 数据模型：相同，均为分布式Map。etcd单机存储引擎为boltDB，TiKV单机存储引擎为RocksDB。均为和应用程序直接绑定的key-value数据库，boltDB使用LSM树作为存储结构而RocksDB使用b+树作为存储结构。
-        \item 存储模型：TiKV对数据分片（默认64MB数据为一个Region），一个Region通常有3个或5个备份，存在于一个Raft组中。etcd只有单个Raft组。
+        \item 实现动机：TiKV为解决传统单机数据库难以（高效）支持分布式（事务）场景的问题，面向分布式数据库存储。etcd专注集群元数据存储以及分布式协调。
+        \item 数据模型：相同，均为分布式有序Map。etcd单机存储引擎为boltDB，TiKV单机存储引擎为RocksDB，均和应用程序直接绑定，boltDB使用LSM树作为存储结构而RocksDB使用b+树作为存储结构。
+        \item 存储模型：TiKV对数据分片（默认64MB数据为一个Region），一个Region通常有3个或5个备份，存在于一个Raft组中，因此TiKV支持的是multi-raft，需要独立的节点管理组件。
         \item 存储限制：etcd最多8GB，TiKV理论上可以无限水平扩容。
-        \item 
     \end{itemize}
 \end{alertblock}
 
 \end{frame}
 
+%
+% frame 3.1 etcd的一些实现细节
+%
+\begin{frame}
+    \frametitle{etcd其它细节：raft与etcd的raft实现}
+    
+    \begin{block}{raft的CP保证}
+    \begin{itemize}
+        \item Leader选举: 利用quorum解决split-brain问题
+        \item 日志备份: 每一个term内，Leader、followers数据的一致性
+        \item Leader选举约束: 新旧Leader间数据的一致性
+    \end{itemize}
+    \end{block}
+        
+    
+    \end{frame}
 
 \begin{frame}
-\frametitle{如何使用etcd}
+    \frametitle{etcd其它细节：raft与etcd的raft实现}
+    \begin{block}{etcd的raft实现：引入learner提升A(vailablity)}
+    首先看一下raft的A的问题
+    \begin{itemize}
+        \item 新成员加入使得leader处于过载
+        \item 网络分区，当leader发现失去和quorum的连接，反转回follower
+        \item 情形
+            \begin{enumerate}
+                \item 集群2+2分裂
+                \item 2+1分区时加入新节点
+            \end{enumerate}
+        \item 集群错误配置，加入一个错误的url，并未添加对应的节点，造成节点成员身份改变
+    \end{itemize}
+    引入learner的好处，所谓learner即不参与投票的集群成员（当learner和leader的日志同步后会转为follower）
+    \begin{itemize}
+        \item learner不处理读写，即不路由客户端请求到leader
+        \item learner日志和leader一致之后，向leader发出member promote请求
+    \end{itemize}
+    \end{block}
 \end{frame}
 
+
+
 %
-% frame4.1: etcd其它细节
+% frame3.2: etcd其它细节
 %
 \begin{frame}
 \frametitle{etcd其它细节：客户端实现}
@@ -152,15 +189,51 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV内部的Raft实现
 
 \end{frame}
 
+
+
+%
+% frame
+%
+
+% \begin{frame}
+% \frametitle{如何使用etcd}
+% \end{frame}
+
+
 %
 % frame5.1：一些思考中的问题和之后的规划
 %
 
 \begin{frame}
 \frametitle{思考中的问题}
-    数据迁移：leader transfer？etcd是否有内置的支持？
+    数据迁移：
+    \begin{itemize}
+        \item 添加新节点，让一个旧的副本节点(可以是leader，raft有直接的LeaderTransfer命令支持)脱离集群。
+        \item 利用learner节点，在不影响（参与投票的）总副本数的情况下创建副本。例：TiKV依靠learner节点，在日志完成同步后，调度集群（PD）发出PromoteLearner和RemoveNode命令，让副本节点脱离集群。
+        \item mirror maker: etcdctl内置特性，利用watch实现，数据实时同步，低延迟，但因为不是集群的一个节点，因此不能保证数据修改顺序
+        \item \alert{tradeoff}：使用mirror低延迟跨数据中心备份数据，使用learner保持所有历史数据以及修改顺序。
+    \end{itemize}
 \end{frame}
 
+\begin{frame}
+\frametitle{思考中的问题}
+    集群监控：
+    \begin{itemize}
+        \item etcd原生导出metrics接口，使用Prometheus进行监控，Grafana进行监控数据可视化。
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{思考中的问题}
+    利用etcd实现故障时主从服务的切换：
+    \begin{itemize}
+        \item 基于etcd提供的分布式锁和租约实现。只有持有锁的节点能够提供服务，同时设定锁的租约持有时间。正常情况下主服务器持有锁并周期性续约，在出现故障且租约超时时，备服务器获取锁成为服务的提供者。
+    \end{itemize}
+\end{frame}
+
+%
+% frame5.2: 下一步仍需解决的问题
+%
 
 \begin{frame}
 \frametitle{下一步仍需解决的一些问题}
@@ -177,6 +250,55 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV内部的Raft实现
     \item 注册中心
     \item 配置中心
 \end{itemize}
+\end{frame}
+
+%
+% frame5.3: 欠缺的一些能力
+%
+
+\begin{frame}
+\frametitle{欠缺的一些能力}
+
+\begin{itemize}
+    \item 对Golang的理解和使用，一些常用的go并发模式
+    \item 源码阅读能力
+    \item 性能调优方法（go pprof，Vtune）
+    \item 其它分布式知识（分布式事务，分布式协调，paxos）
+    \item 分布式系统理论和实践的结合
+    \item 其它分布式系统（ZK，TiKV，k8s、Docker）
+\end{itemize}
+
+\end{frame}
+
+%
+% frame5.4: 下一步的规划
+%
+
+\begin{frame}
+\frametitle{下一步的规划}
+
+\begin{itemize}
+    \item golang基础
+    \item 学习一些测试方法（go-tpc，etcd自带的benchmark工具）
+    \item 学习性能调优
+    \item 希望尽快具备解决一些问题的能力
+\end{itemize}
+
+\end{frame}
+
+%
+% frame6.1: 结束
+%
+
+\begin{frame}
+\frametitle{谢谢}
+
+ppt和做的一些笔记已经上传到github仓库中。
+
+\url{https://github.com/Willendless/internship}
+
+欢迎随时给出修改建议。
+
 \end{frame}
 
 \end{document}
