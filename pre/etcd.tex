@@ -114,7 +114,7 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
 \begin{alertblock}{比较}
     \begin{itemize}
         \item 实现动机：TiKV为解决传统单机数据库难以（高效）支持分布式（事务）场景的问题，面向分布式数据库存储。etcd专注集群元数据存储以及分布式协调。
-        \item 数据模型：相同，均为分布式有序Map。etcd单机存储引擎为boltDB，TiKV单机存储引擎为RocksDB，均和应用程序直接绑定，boltDB使用LSM树作为存储结构而RocksDB使用b+树作为存储结构。
+        \item 数据模型：相同，均为分布式有序Map。etcd单机存储引擎为boltDB，TiKV单机存储引擎为RocksDB，均和应用程序直接绑定，boltDB使用b+树作为存储结构而RocksDB使用LSM树作为存储结构。
         \item 存储模型：TiKV对数据分片（默认64MB数据为一个Region），一个Region通常有3个或5个备份，存在于一个Raft组中，因此TiKV支持的是multi-raft，需要独立的节点管理组件。
         \item 存储限制：etcd最多8GB，TiKV理论上可以无限水平扩容。
     \end{itemize}
@@ -275,14 +275,24 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
 %
 
 \begin{frame}
-\frametitle{下一步的规划}
+\frametitle{下一步的自我规划}
+
+目标
 
 \begin{itemize}
-    \item golang基础
-    \item 学习一些测试方法（go-tpc，etcd自带的benchmark工具）
-    \item 学习性能调优
-    \item 希望尽快具备解决一些问题的能力
+    \item 真正从源码层面理解etcd和raft算法
+    \item 理解etcd各种特性的实现和raft的结合，包括但不限于mvcc、wal、lease
+    \item 从etcd应用层面出发，了解集群部署、监控、调优等运维知识
+    \item 从etcd存储层出发，了解boltdb，rocksdb等数据库的实现、索引与使用
 \end{itemize}
+
+输出
+
+\begin{enumerate}
+    \item 源码与工程实现个人理解的文章输出
+    \item etcd部署、运维的步骤与总结
+\end{enumerate}
+
 
 \end{frame}
 
@@ -293,7 +303,7 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
 \begin{frame}
 \frametitle{谢谢}
 
-ppt和做的一些笔记已经上传到github仓库中。
+ppt和每日写的一些总结笔记已经上传到github仓库中。
 
 \url{https://github.com/Willendless/internship}
 
