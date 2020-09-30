@@ -25,7 +25,7 @@
     \item 什么是etcd
     \item 为什么使用etcd
     \item etcd一些实现细节
-    \item 如何使用etcd
+    % \item 如何使用etcd
     \item 一些仍需解决的问题
 \end{itemize}
 \end{frame}
@@ -43,7 +43,7 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 \end{block}
 
 \begin{block}{数据模型：键值存储+版本}
-扁平的键空间模拟文件目录结构。
+扁平的键值map空间，根据键有序排列。
 \begin{itemize}
     \item \alert{持久化:} 键值对存储在持久化b+树中，支持对键的范围查找
     \item 内存b树缓存指向键值对的指针
@@ -62,8 +62,8 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 单一raft备份组，无分片。
 \begin{itemize}
     \item 无分片，水平扩展能力较差，支持数GB数据(默认2GB，最大8GB)，因此海量数据存储需要使用NewSQL数据库。
-    \item 无分片，无需分片备份组之间两阶段提交以及分布式锁的开销，性能更好。
-    \item etcd的使用举例：k8s利用etcd存储元数据，tikv的PD利用etcd存储region位置等元数据信息。
+    \item 无分片，事务的实现无需分片备份组之间两阶段提交以及分布式锁的开销，性能更好。
+    \item 示例：k8s利用etcd存储元数据，tikv的PD利用etcd存储region位置等元数据信息。
 \end{itemize}
 \end{exampleblock}
 
@@ -72,7 +72,7 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
 \begin{itemize}
     \item 提供监视器、租约、leader选举和分布式锁的支持。
     \item 简单易用，支持Restful接口，可以从命令行使用分布式协调服务。
-    \item 使用gRPC框架，已经有多种语言的API支持或客户端实现。
+    \item 使用gRPC框架，已经有多种语言的客户端实现。
 \end{itemize}
 \end{exampleblock}
 
@@ -94,8 +94,9 @@ etcd是一个\alert{强一致}的分布式\alert{键值存储}。
         \item 读操作：zk不支持线性化读，读操作可能读到过时数据。
         \item MVCC：etcd支持MVCC，zk不支持。
         \item 监视器通知：etcd支持范围键值的监视器。
-        \item API支持：etcd支持HTTP/JSON API，zk不支持。
+        % \item API支持：etcd支持HTTP/JSON API，zk不支持。
         \item RPC框架：etcd使用grpc框架，zk使用自己定制的rpc协议。
+        \item TODO: 性能比较
     \end{itemize}
 \end{alertblock}
 
@@ -114,7 +115,7 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
 \begin{alertblock}{比较}
     \begin{itemize}
         \item 实现动机：TiKV为解决传统单机数据库难以（高效）支持分布式（事务）场景的问题，面向分布式数据库存储。etcd专注集群元数据存储以及分布式协调。
-        \item 数据模型：相同，均为分布式有序Map。etcd单机存储引擎为boltDB，TiKV单机存储引擎为RocksDB，均和应用程序直接绑定，boltDB使用b+树作为存储结构而RocksDB使用LSM树作为存储结构。
+        \item 数据模型：相同，均为分布式有序Map。etcd单机存储引擎为boltDB，TiKV单机存储引擎为RocksDB，均和应用程序直接绑定，boltDB使用b+树作为存储结构，适合读多写少。RocksDB使用LSM树作为存储结构，适合写多读少。
         \item 存储模型：TiKV对数据分片（默认64MB数据为一个Region），一个Region通常有3个或5个备份，存在于一个Raft组中，因此TiKV支持的是multi-raft，需要独立的节点管理组件。
         \item 存储限制：etcd最多8GB，TiKV理论上可以无限水平扩容。
     \end{itemize}
@@ -166,28 +167,28 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
 %
 % frame3.2: etcd其它细节
 %
-\begin{frame}
-\frametitle{etcd其它细节：客户端实现}
+% \begin{frame}
+% \frametitle{etcd其它细节：客户端实现}
 
-\begin{block}{grpc1.0}
-客户端为每个endpoint维护一个TCP连接，第一个成功建立连接的endpoint作为"pinned address". 
-多个TCP连接有利于更快的故障恢复，但是需要更多资源。
-\end{block}
+% \begin{block}{grpc1.0}
+% 客户端为每个endpoint维护一个TCP连接，第一个成功建立连接的endpoint作为"pinned address". 
+% 多个TCP连接有利于更快的故障恢复，但是需要更多资源。
+% \end{block}
 
-\begin{block}{grpc1.7}
-首先尝试连接所有endpoints，维护第一个成功连接的TCP连接。
-遇到错误时，由客户端的错误处理器(error handler)决定重连或选择新的服务器地址。
-需要维护endpoints状态列表，其中不健康状态的判定存在误判的可能，
-即被标记为不健康的节点可能在之后恢复健康但客户端无法获取该信息。
-\end{block}
+% \begin{block}{grpc1.7}
+% 首先尝试连接所有endpoints，维护第一个成功连接的TCP连接。
+% 遇到错误时，由客户端的错误处理器(error handler)决定重连或选择新的服务器地址。
+% 需要维护endpoints状态列表，其中不健康状态的判定存在误判的可能，
+% 即被标记为不健康的节点可能在之后恢复健康但客户端无法获取该信息。
+% \end{block}
 
-\begin{block}{grpc1.23}
-客户端为每个endpoint维护一个TCP连接，通过轮转(round robin)负载均衡，
-通过gRPC链式拦截器实现重连.
-\alert{仍未解决：}网络分区情况下阻塞，缺少集群健康情况查询服务。
-\end{block}
+% \begin{block}{grpc1.23}
+% 客户端为每个endpoint维护一个TCP连接，通过轮转(round robin)负载均衡，
+% 通过gRPC链式拦截器实现重连.
+% \alert{仍未解决：}网络分区情况下阻塞，缺少集群健康情况查询服务。
+% \end{block}
 
-\end{frame}
+% \end{frame}
 
 
 
@@ -210,7 +211,7 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
     \begin{itemize}
         \item 添加新节点，让一个旧的副本节点(可以是leader，raft有直接的LeaderTransfer命令支持)脱离集群。
         \item 利用learner节点，在不影响（参与投票的）总副本数的情况下创建副本。例：TiKV依靠learner节点，在日志完成同步后，调度集群（PD）发出PromoteLearner和RemoveNode命令，让副本节点脱离集群。
-        \item mirror maker: etcdctl内置特性，利用watch实现，数据实时同步，低延迟，但因为不是集群的一个节点，因此不能保证数据修改顺序
+        \item mirror maker: etcdctl内置组件，利用watch实现，数据实时同步，低延迟，但因为不是集群的一个节点，因此不能保证数据修改顺序
         \item \alert{tradeoff}：使用mirror低延迟跨数据中心备份数据，使用learner保持所有历史数据以及修改顺序。
     \end{itemize}
 \end{frame}
@@ -282,7 +283,7 @@ etcd和NewSQL数据库的比较(以TiKV为例)。虽然TiKV最初的Raft实现
 \begin{itemize}
     \item 真正从源码层面理解etcd和raft算法
     \item 理解etcd各种特性的实现和raft的结合，包括但不限于mvcc、wal、lease
-    \item 从etcd应用层面出发，了解集群部署、监控、调优等运维知识
+    \item 从etcd应用层面出发，了解集群部署、测试、监控、调优等知识
     \item 从etcd存储层出发，了解boltdb，rocksdb等数据库的实现、索引与使用
 \end{itemize}
 
