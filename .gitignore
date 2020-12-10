@@ -2,3 +2,6 @@
 *.log
 *.out
 *.gz
+*.nav
+*.snm
+*.toc
